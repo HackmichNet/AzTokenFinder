@@ -17,7 +17,7 @@ namespace AzTokenFinder
 
         [Option("default", Required = false, HelpText = "Enumerate Edge, Excel, Word, PowerShell, Teams, Onedrive and PowerPoint.")]
         public bool Default { get; set; }
-        [Option("showexpiredtokes", Required = false, HelpText = "Shows expired tokens.", Default = false)]
+        [Option("showexpiredtokens", Required = false, HelpText = "Shows expired tokens.", Default = false)]
         public bool ShowExpiredTokens { get; set; }
 
     }

@@ -1,6 +1,6 @@
 # AzTokenFinder
 
-Is a small tool to extract JWT (or JWT like looking data) from different processes, like PowerShell, Excel, Word or others. The idea was from another tool which I read about on Twitter, but I could not find it anymore. Maybe someone could give me a hint.
+Is a small tool to extract JWT (or JWT like looking data) from different processes, like PowerShell, Excel, Word or others. The idea was inspired from the blogpost [https://mrd0x.com/stealing-tokens-from-office-applications/](https://mrd0x.com/stealing-tokens-from-office-applications/) from the amazing [@mrd0x](https://twitter.com/mrd0x).
 
 ```cmd
 AzTokenFinder.exe --help
