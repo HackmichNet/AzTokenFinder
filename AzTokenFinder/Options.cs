@@ -9,6 +9,10 @@ namespace AzTokenFinder
 {
     internal class Options
     {
+        [Option("mode", Required = true, HelpText = "Use mode 'online' for parsing processes or use mode offline to decode TokenBroker Cache", Default = "Online")]
+        public String Mode { get; set; }
+        [Option("filename", Required = false, HelpText = "Set path to a BrokerCache File.")]
+        public String Filename { get; set; }
         [Option("processname", Required = false, HelpText = "Names of process you want to parse. Please omit the \".exe\".")]
         public IEnumerable<string> ProcessNames { get; set; }
 
