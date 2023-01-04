@@ -406,6 +406,11 @@ namespace AzTokenFinder
             }
             else if (opts.Mode.ToLower() == "offline")
             {
+                if(opts.targetapp == null)
+                {
+                    Console.WriteLine("[-] Please provide a target or use --help to get more information.");
+                    return;
+                }
 
                 if (opts.Filename != null)
                 {
