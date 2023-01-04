@@ -24,5 +24,8 @@ namespace AzTokenFinder
         [Option("showexpiredtokens", Required = false, HelpText = "Shows expired tokens.", Default = false)]
         public bool ShowExpiredTokens { get; set; }
 
+        [Option("targetapp", Required = false, HelpText = "Parses the files where Office, Azure CLI or Azure PowerShell stores its data. Can be Office (TokenCache), AZCLI (Azure CLI) or AzPWSH (Azure Powershell)", Default = false)]
+        public string targetapp { get; set; }
+
     }
 }
